@@ -1,0 +1,21 @@
+# Multi-stage Dockerfile for Spring Boot 3 Backend with Trivy Integration
+FROM maven:3.9.6-eclipse-temurin-17 AS builder
+WORKDIR /app
+COPY backend/pom.xml .
+COPY backend/src ./src
+RUN mvn clean package -DskipTests
+
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+
+# Install Trivy vulnerability scanner binary inside container
+RUN apt-get update && apt-get install -y wget apt-transport-https gnupg lsb-release curl jq && \
+    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list && \
+    apt-get update && apt-get install -y trivy && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/securegate-ai-backend-1.0.0.jar app.jar
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -1,0 +1,6 @@
+{
+  "name": "SecureGate AI — Artifact Registry with Vulnerability Scanning Gates",
+  "description": "Enterprise DevSecOps platform preventing insecure Docker container images from reaching deployment with Trivy vulnerability scanning, policy enforcement, Artifact Registry and Cloud Run integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

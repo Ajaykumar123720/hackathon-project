@@ -1,0 +1,46 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: securegate-ai-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/securegate_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:securegate_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:securegate_secret_pass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+securegate:
+  jwt:
+    secret: ${JWT_SECRET:4c23a78912ef369a8b123654f9871023cdaefb1982736450192837465abcde99}
+    expiration-ms: 86400000 # 24 hours
+  trivy:
+    bin-path: ${TRIVY_BIN_PATH:trivy}
+    timeout-seconds: 180
+  gcp:
+    project-id: ${GCP_PROJECT_ID:securegate-cloud}
+    artifact-registry:
+      region: ${AR_REGION:us-central1}
+      release-repo: ${AR_RELEASE_REPO:release-images}
+      quarantine-repo: ${AR_QUARANTINE_REPO:quarantine-staging}
+    cloud-run:
+      region: ${CLOUD_RUN_REGION:us-central1}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # MySQL 8.0 Database for Security Gate Persistence
+  mysql:
+    image: mysql:8.0
+    container_name: securegate-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_password
+      MYSQL_DATABASE: securegate_db
+      MYSQL_USER: securegate_user
+      MYSQL_PASSWORD: securegate_secret_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Spring Boot 3.3 Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: securegate-backend
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/securegate_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: securegate_user
+      SPRING_DATASOURCE_PASSWORD: securegate_secret_pass
+      GCP_PROJECT_ID: securegate-cloud
+      AR_REGION: us-central1
+      CLOUD_RUN_REGION: us-central1
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # React Frontend (Vite + Nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: securegate-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

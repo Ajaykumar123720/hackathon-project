@@ -1,0 +1,70 @@
+# Google Cloud Build Pipeline with SecureGate AI Security Gate
+# Steps: Source -> Build Quarantine -> Trivy Scan -> Gate Evaluation -> Release Promotion -> Cloud Run Deploy
+
+steps:
+  # 1. Build container into quarantine repository
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/quarantine-staging/securegate-api-service:$SHORT_SHA'
+      - '.'
+
+  # 2. Run Trivy Vulnerability Scan with structured JSON output
+  - name: 'aquasec/trivy:0.58.1'
+    args:
+      - 'image'
+      - '--format'
+      - 'json'
+      - '--output'
+      - 'scan-results.json'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/quarantine-staging/securegate-api-service:$SHORT_SHA'
+
+  # 3. SecureGate Policy Enforcement: Fail-closed gate evaluation
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        CRIT_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' scan-results.json)
+        HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' scan-results.json)
+        echo "=== SECUREGATE AI GATE EVALUATION ==="
+        echo "Critical Vulnerabilities: $CRIT_COUNT (Gate Threshold: 0)"
+        echo "High Vulnerabilities: $HIGH_COUNT (Gate Threshold: 2)"
+        
+        if [ "$CRIT_COUNT" -gt 0 ]; then
+          echo "ERROR: SECURITY GATE BLOCKED! Image contains $CRIT_COUNT Critical CVEs."
+          echo "Image quarantined at us-central1-docker.pkg.dev/$PROJECT_ID/quarantine-staging."
+          exit 1
+        fi
+        
+        if [ "$HIGH_COUNT" -gt 2 ]; then
+          echo "ERROR: SECURITY GATE BLOCKED! High CVEs ($HIGH_COUNT) exceed policy threshold of 2."
+          exit 1
+        fi
+        
+        echo "SUCCESS: Security Gate PASSED! Proceeding to release promotion and Cloud Run."
+
+  # 4. Promote verified immutable digest to release repository
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker tag us-central1-docker.pkg.dev/$PROJECT_ID/quarantine-staging/securegate-api-service:$SHORT_SHA us-central1-docker.pkg.dev/$PROJECT_ID/release-images/securegate-api-service:$SHORT_SHA
+        docker push us-central1-docker.pkg.dev/$PROJECT_ID/release-images/securegate-api-service:$SHORT_SHA
+
+  # 5. Deploy approved immutable digest to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'securegate-api-service'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/release-images/securegate-api-service:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/release-images/securegate-api-service:$SHORT_SHA'

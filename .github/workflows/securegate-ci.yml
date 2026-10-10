@@ -1,0 +1,70 @@
+name: SecureGate AI — DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  gate-scan-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+
+      - name: Configure Docker for Google Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build Container Image into Quarantine
+        run: |
+          docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/quarantine-staging/app:${{ github.sha }} .
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/quarantine-staging/app:${{ github.sha }}
+          format: 'json'
+          output: 'trivy-results.json'
+
+      - name: SecureGate AI Policy Evaluation
+        run: |
+          CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-results.json)
+          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-results.json)
+          
+          echo "Discovered Vulnerabilities: Critical=$CRITICAL, High=$HIGH"
+          
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::SECURITY GATE BLOCKED: $CRITICAL Critical CVEs exceed zero-tolerance threshold."
+            exit 1
+          fi
+          
+          if [ "$HIGH" -gt 2 ]; then
+            echo "::error::SECURITY GATE BLOCKED: $HIGH High CVEs exceed threshold of 2."
+            exit 1
+          fi
+          
+          echo "Security Gate Passed: Image authorized for release."
+
+      - name: Promote Immutable Digest to Release Repository
+        run: |
+          docker tag us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/quarantine-staging/app:${{ github.sha }} us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/release-images/app:${{ github.sha }}
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/release-images/app:${{ github.sha }}
+
+      - name: Deploy Approved Image to Google Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: securegate-api-service
+          image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/release-images/app:${{ github.sha }}
+          region: us-central1
