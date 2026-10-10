@@ -91,7 +91,7 @@ export function App() {
     setCurrentPage('scanner');
   };
 
-  const handleScanImageFromExplorer = (imageName: string, imageTag: string) => {
+  const handleScanImageFromExplorer = (_imageName: string, _imageTag: string) => {
     setCurrentPage('scanner');
   };
 
